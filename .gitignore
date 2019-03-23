@@ -8,3 +8,5 @@ frames/
 dock_config.json
 .mypy_cache
 *_dir*
+*.log
+*.sh

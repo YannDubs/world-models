@@ -36,4 +36,11 @@ class Controller(nn.Module):
                 # first input
                 self.old_actions = actions
 
+        # only works for car racing!
+        actions = actions.unbind(dim=1)
+        actions = torch.stack((torch.tanh(actions[0]),  # steer
+                               torch.sigmoid(actions[1]),  # accelerate
+                               torch.clamp(torch.tanh(actions[2]), min=0, max=1)),  # brake
+                              dim=1)
+
         return actions
