@@ -7,8 +7,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+
 class Decoder(nn.Module):
     """ VAE decoder """
+
     def __init__(self, img_channels, latent_size):
         super(Decoder, self).__init__()
         self.latent_size = latent_size
@@ -20,7 +22,7 @@ class Decoder(nn.Module):
         self.deconv3 = nn.ConvTranspose2d(64, 32, 6, stride=2)
         self.deconv4 = nn.ConvTranspose2d(32, img_channels, 6, stride=2)
 
-    def forward(self, x): # pylint: disable=arguments-differ
+    def forward(self, x):  # pylint: disable=arguments-differ
         x = F.relu(self.fc1(x))
         x = x.unsqueeze(-1).unsqueeze(-1)
         x = F.relu(self.deconv1(x))
@@ -29,8 +31,10 @@ class Decoder(nn.Module):
         reconstruction = F.sigmoid(self.deconv4(x))
         return reconstruction
 
-class Encoder(nn.Module): # pylint: disable=too-many-instance-attributes
+
+class Encoder(nn.Module):  # pylint: disable=too-many-instance-attributes
     """ VAE encoder """
+
     def __init__(self, img_channels, latent_size):
         super(Encoder, self).__init__()
         self.latent_size = latent_size
@@ -42,11 +46,10 @@ class Encoder(nn.Module): # pylint: disable=too-many-instance-attributes
         self.conv3 = nn.Conv2d(64, 128, 4, stride=2)
         self.conv4 = nn.Conv2d(128, 256, 4, stride=2)
 
-        self.fc_mu = nn.Linear(2*2*256, latent_size)
-        self.fc_logsigma = nn.Linear(2*2*256, latent_size)
+        self.fc_mu = nn.Linear(2 * 2 * 256, latent_size)
+        self.fc_logsigma = nn.Linear(2 * 2 * 256, latent_size)
 
-
-    def forward(self, x): # pylint: disable=arguments-differ
+    def forward(self, x):  # pylint: disable=arguments-differ
         x = F.relu(self.conv1(x))
         x = F.relu(self.conv2(x))
         x = F.relu(self.conv3(x))
@@ -58,18 +61,23 @@ class Encoder(nn.Module): # pylint: disable=too-many-instance-attributes
 
         return mu, logsigma
 
+
 class VAE(nn.Module):
     """ Variational Autoencoder """
+
     def __init__(self, img_channels, latent_size):
         super(VAE, self).__init__()
         self.encoder = Encoder(img_channels, latent_size)
         self.decoder = Decoder(img_channels, latent_size)
 
-    def forward(self, x): # pylint: disable=arguments-differ
+    def forward(self, x, is_sample=False):  # pylint: disable=arguments-differ
         mu, logsigma = self.encoder(x)
         sigma = logsigma.exp()
         eps = torch.randn_like(sigma)
         z = eps.mul(sigma).add_(mu)
 
         recon_x = self.decoder(z)
-        return recon_x, mu, logsigma
+        if is_sample:
+            return recon_x, mu, logsigma, z
+        else:
+            return recon_x, mu, logsigma

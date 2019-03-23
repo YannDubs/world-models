@@ -22,6 +22,7 @@ transform = transforms.Compose([
     transforms.ToTensor()
 ])
 
+
 def sample_continuous_policy(action_space, seq_len, dt):
     """ Sample a continuous policy.
 
@@ -42,11 +43,13 @@ def sample_continuous_policy(action_space, seq_len, dt):
                     action_space.low, action_space.high))
     return actions
 
+
 def save_checkpoint(state, is_best, filename, best_filename):
     """ Save state in filename. Also save in best_filename if is_best. """
     torch.save(state, filename)
     if is_best:
         torch.save(state, best_filename)
+
 
 def flatten_parameters(params):
     """ Flattening parameters.
@@ -57,6 +60,7 @@ def flatten_parameters(params):
         parameters concatenated)
     """
     return torch.cat([p.detach().view(-1) for p in params], dim=0).cpu().numpy()
+
 
 def unflatten_parameters(params, example, device):
     """ Unflatten parameters.
@@ -76,6 +80,7 @@ def unflatten_parameters(params, example, device):
         idx += e_p.numel()
     return unflattened
 
+
 def load_parameters(params, controller):
     """ Load flattened parameters into controller.
 
@@ -88,6 +93,7 @@ def load_parameters(params, controller):
 
     for p, p_0 in zip(controller.parameters(), params):
         p.data.copy_(p_0)
+
 
 class RolloutGenerator(object):
     """ Utility to generate rollouts.
@@ -103,9 +109,12 @@ class RolloutGenerator(object):
     :attr device: device used to run VAE, MDRNN and Controller
     :attr time_limit: rollouts have a maximum of time_limit timesteps
     """
-    def __init__(self, mdir, device, time_limit):
+
+    def __init__(self, mdir, device, time_limit, is_gate=False):
         """ Build vae, rnn, controller and environment. """
         # Loading world model and vae
+        print(is_gate)
+
         vae_file, rnn_file, ctrl_file = \
             [join(mdir, m, 'best.tar') for m in ['vae', 'mdrnn', 'ctrl']]
 
@@ -128,7 +137,7 @@ class RolloutGenerator(object):
         self.mdrnn.load_state_dict(
             {k.strip('_l0'): v for k, v in rnn_state['state_dict'].items()})
 
-        self.controller = Controller(LSIZE, RSIZE, ASIZE).to(device)
+        self.controller = Controller(LSIZE, RSIZE, ASIZE, is_gate=is_gate).to(device)
 
         # load controller if it was previously saved
         if exists(ctrl_file):

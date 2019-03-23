@@ -1,7 +1,6 @@
 """
 Training a linear controller on latent + recurrent state
 with CMAES.
-
 This is a bit complex. num_workers slave threads are launched
 to process a queue filled with parameters to be evaluated.
 """
@@ -23,15 +22,16 @@ from utils.misc import flatten_parameters
 # parsing
 parser = argparse.ArgumentParser()
 parser.add_argument('--logdir', type=str, help='Where everything is stored.')
-parser.add_argument('--n-samples', type=int, help='Number of samples used to obtain '
-                    'return estimate.')
-parser.add_argument('--pop-size', type=int, help='Population size.')
+parser.add_argument('--n-samples', type=int, default=4, help='Number of samples (rollouts) used to obtain  estimate.')
+parser.add_argument('--pop-size', type=int, default=4, help='Population size.')
 parser.add_argument('--target-return', type=float, help='Stops once the return '
                     'gets above target_return')
 parser.add_argument('--display', action='store_true', help="Use progress bars if "
                     "specified.")
 parser.add_argument('--max-workers', type=int, help='Maximum number of workers.',
-                    default=32)
+                    default=14) # 16 but let a lttle bit margin
+parser.add_argument('--is-gate', action='store_true', help='Whether to use a highway for last actions to smoothen it out.')
+parser.add_argument('--max-epoch', type=int, default=50, help='Whether to use a highway for last actions to smoothen it out.')
 args = parser.parse_args()
 
 # Max number of workers. M
@@ -61,21 +61,16 @@ if not exists(ctrl_dir):
 ################################################################################
 def slave_routine(p_queue, r_queue, e_queue, p_index):
     """ Thread routine.
-
     Threads interact with p_queue, the parameters queue, r_queue, the result
     queue and e_queue the end queue. They pull parameters from p_queue, execute
     the corresponding rollout, then place the result in r_queue.
-
     Each parameter has its own unique id. Parameters are pulled as tuples
     (s_id, params) and results are pushed as (s_id, result).  The same
     parameter can appear multiple times in p_queue, displaying the same id
     each time.
-
     As soon as e_queue is non empty, the thread terminate.
-
     When multiple gpus are involved, the assigned gpu is determined by the
     process index p_index (gpu = p_index % n_gpus).
-
     :args p_queue: queue containing couples (s_id, parameters) to evaluate
     :args r_queue: where to place results (s_id, results)
     :args e_queue: as soon as not empty, terminate
@@ -90,7 +85,7 @@ def slave_routine(p_queue, r_queue, e_queue, p_index):
     sys.stderr = open(join(tmp_dir, str(getpid()) + '.err'), 'a')
 
     with torch.no_grad():
-        r_gen = RolloutGenerator(args.logdir, device, time_limit)
+        r_gen = RolloutGenerator(args.logdir, device, time_limit, is_gate=args.is_gate)
 
         while e_queue.empty():
             if p_queue.empty():
@@ -116,13 +111,10 @@ for p_index in range(num_workers):
 ################################################################################
 def evaluate(solutions, results, rollouts=100):
     """ Give current controller evaluation.
-
     Evaluation is minus the cumulated reward averaged over rollout runs.
-
     :args solutions: CMA set of solutions
     :args results: corresponding results
     :args rollouts: number of rollouts
-
     :returns: minus averaged cumulated reward
     """
     index_min = np.argmin(results)
@@ -139,6 +131,7 @@ def evaluate(solutions, results, rollouts=100):
         restimates.append(r_queue.get()[1])
 
     return best_guess, np.mean(restimates), np.std(restimates)
+
 
 ################################################################################
 #                           Launch CMA                                         #
@@ -206,7 +199,9 @@ while not es.stop():
         if - best > args.target_return:
             print("Terminating controller training with value {}...".format(best))
             break
-
+    if epoch >= args.max_epoch:
+        print("Terminating at max epoch {}...".format(epoch))
+        break
 
     epoch += 1
 

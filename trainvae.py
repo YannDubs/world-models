@@ -14,21 +14,24 @@ from models.vae import VAE
 
 from utils.misc import save_checkpoint
 from utils.misc import LSIZE, RED_SIZE
-## WARNING : THIS SHOULD BE REPLACE WITH PYTORCH 0.5
+from factorvae import FactorKLoss
+# WARNING : THIS SHOULD BE REPLACE WITH PYTORCH 0.5
 from utils.learning import EarlyStopping
 from utils.learning import ReduceLROnPlateau
 from data.loaders import RolloutObservationDataset
 
 parser = argparse.ArgumentParser(description='VAE Trainer')
-parser.add_argument('--batch-size', type=int, default=32, metavar='N',
+parser.add_argument('--batch-size', type=int, default=128, metavar='N',
                     help='input batch size for training (default: 32)')
-parser.add_argument('--epochs', type=int, default=1000, metavar='N',
+parser.add_argument('--epochs', type=int, default=200, metavar='N',
                     help='number of epochs to train (default: 1000)')
 parser.add_argument('--logdir', type=str, help='Directory where results are logged')
 parser.add_argument('--noreload', action='store_true',
                     help='Best model is not reloaded if specified')
 parser.add_argument('--nosamples', action='store_true',
                     help='Does not save samples during training if specified')
+parser.add_argument('--is-factor', action='store_true',
+                    help='Uses factor VAE')
 
 
 args = parser.parse_args()
@@ -60,9 +63,9 @@ dataset_train = RolloutObservationDataset('datasets/carracing',
 dataset_test = RolloutObservationDataset('datasets/carracing',
                                          transform_test, train=False)
 train_loader = torch.utils.data.DataLoader(
-    dataset_train, batch_size=args.batch_size, shuffle=True, num_workers=2)
+    dataset_train, batch_size=args.batch_size, shuffle=True, num_workers=0)
 test_loader = torch.utils.data.DataLoader(
-    dataset_test, batch_size=args.batch_size, shuffle=True, num_workers=2)
+    dataset_test, batch_size=args.batch_size, shuffle=True, num_workers=0)
 
 
 model = VAE(3, LSIZE).to(device)
@@ -71,6 +74,8 @@ scheduler = ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=5)
 earlystopping = EarlyStopping('min', patience=30)
 
 # Reconstruction + KL divergence losses summed over all elements and batch
+
+
 def loss_function(recon_x, x, mu, logsigma):
     """ VAE loss function """
     BCE = F.mse_loss(recon_x, x, size_average=False)
@@ -83,19 +88,26 @@ def loss_function(recon_x, x, mu, logsigma):
     return BCE + KLD
 
 
-def train(epoch):
+def train(epoch, is_factor=False):
     """ One training epoch """
     model.train()
     dataset_train.load_next_buffer()
     train_loss = 0
+    if is_factor:
+        factor_loss_function = FactorKLoss(disc_kwargs=dict(neg_slope=0.2, latent_dim=LSIZE, hidden_units=1000))
     for batch_idx, data in enumerate(train_loader):
         data = data.to(device)
         optimizer.zero_grad()
-        recon_batch, mu, logvar = model(data)
-        loss = loss_function(recon_batch, data, mu, logvar)
-        loss.backward()
+
+        if is_factor:
+            loss = factor_loss_function(data, optimizer, model)
+        else:
+            recon_batch, mu, logvar = model(data)
+            loss = loss_function(recon_batch, data, mu, logvar)
+            loss.backward()
+            optimizer.step()
+
         train_loss += loss.item()
-        optimizer.step()
         if batch_idx % 20 == 0:
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
                 epoch, batch_idx * len(data), len(train_loader.dataset),
@@ -121,6 +133,7 @@ def test():
     print('====> Test set loss: {:.4f}'.format(test_loss))
     return test_loss
 
+
 # check vae dir exists, if not, create it
 vae_dir = join(args.logdir, 'vae')
 if not exists(vae_dir):
@@ -138,12 +151,13 @@ if not args.noreload and exists(reload_file):
     optimizer.load_state_dict(state['optimizer'])
     scheduler.load_state_dict(state['scheduler'])
     earlystopping.load_state_dict(state['earlystopping'])
+    print(next(model.parameters()).device)
 
 
 cur_best = None
 
 for epoch in range(1, args.epochs + 1):
-    train(epoch)
+    train(epoch, is_factor=args.is_factor)
     test_loss = test()
     scheduler.step(test_loss)
     earlystopping.step(test_loss)
@@ -163,8 +177,6 @@ for epoch in range(1, args.epochs + 1):
         'scheduler': scheduler.state_dict(),
         'earlystopping': earlystopping.state_dict()
     }, is_best, filename, best_filename)
-
-
 
     if not args.nosamples:
         with torch.no_grad():

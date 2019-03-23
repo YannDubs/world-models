@@ -12,7 +12,7 @@ from tqdm import tqdm
 from utils.misc import save_checkpoint
 from utils.misc import ASIZE, LSIZE, RSIZE, RED_SIZE, SIZE
 from utils.learning import EarlyStopping
-## WARNING : THIS SHOULD BE REPLACED WITH PYTORCH 0.5
+# WARNING : THIS SHOULD BE REPLACED WITH PYTORCH 0.5
 from utils.learning import ReduceLROnPlateau
 
 from data.loaders import RolloutSequenceDataset
@@ -26,14 +26,17 @@ parser.add_argument('--noreload', action='store_true',
                     help="Do not reload if specified.")
 parser.add_argument('--include_reward', action='store_true',
                     help="Add a reward modelisation term to the loss.")
+parser.add_argument('--no-train', action='store_true',
+                    help="Use a randomly intiitalised mdrnn.")
+parser.add_argument('--epochs', type=int, default=30,
+                    help="Use a randomly intiitalised mdrnn.")
 args = parser.parse_args()
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # constants
-BSIZE = 16
+BSIZE = 16  # 16
 SEQ_LEN = 32
-epochs = 30
 
 # Loading VAE
 vae_file = join(args.logdir, 'vae', 'best.tar')
@@ -76,10 +79,11 @@ transform = transforms.Lambda(
     lambda x: np.transpose(x, (0, 3, 1, 2)) / 255)
 train_loader = DataLoader(
     RolloutSequenceDataset('datasets/carracing', SEQ_LEN, transform, buffer_size=30),
-    batch_size=BSIZE, num_workers=8, shuffle=True)
+    batch_size=BSIZE, num_workers=4, shuffle=True)
 test_loader = DataLoader(
     RolloutSequenceDataset('datasets/carracing', SEQ_LEN, transform, train=False, buffer_size=10),
-    batch_size=BSIZE, num_workers=8)
+    batch_size=BSIZE, num_workers=4)
+
 
 def to_latent(obs, next_obs):
     """ Transform observations to latent space.
@@ -105,6 +109,7 @@ def to_latent(obs, next_obs):
             for x_mu, x_logsigma in
             [(obs_mu, obs_logsigma), (next_obs_mu, next_obs_logsigma)]]
     return latent_obs, latent_next_obs
+
 
 def get_loss(latent_obs, action, reward, terminal,
              latent_next_obs, include_reward: bool):
@@ -144,7 +149,7 @@ def get_loss(latent_obs, action, reward, terminal,
     return dict(gmm=gmm, bce=bce, mse=mse, loss=loss)
 
 
-def data_pass(epoch, train, include_reward): # pylint: disable=too-many-locals
+def data_pass(epoch, train, include_reward):  # pylint: disable=too-many-locals
     """ One pass through the data """
     if train:
         mdrnn.train()
@@ -198,15 +203,9 @@ train = partial(data_pass, train=True, include_reward=args.include_reward)
 test = partial(data_pass, train=False, include_reward=args.include_reward)
 
 cur_best = None
-for e in range(epochs):
-    train(e)
-    test_loss = test(e)
-    scheduler.step(test_loss)
-    earlystopping.step(test_loss)
 
-    is_best = not cur_best or test_loss < cur_best
-    if is_best:
-        cur_best = test_loss
+if args.no_train:
+    test_loss = test(-1)
     checkpoint_fname = join(rnn_dir, 'checkpoint.tar')
     save_checkpoint({
         "state_dict": mdrnn.state_dict(),
@@ -214,9 +213,29 @@ for e in range(epochs):
         'scheduler': scheduler.state_dict(),
         'earlystopping': earlystopping.state_dict(),
         "precision": test_loss,
-        "epoch": e}, is_best, checkpoint_fname,
-                    rnn_file)
+        "epoch": -1}, True, checkpoint_fname,
+        rnn_file)
 
-    if earlystopping.stop:
-        print("End of Training because of early stopping at epoch {}".format(e))
-        break
+else:
+    for e in range(args.epochs):
+        train(e)
+        test_loss = test(e)
+        scheduler.step(test_loss)
+        earlystopping.step(test_loss)
+
+        is_best = not cur_best or test_loss < cur_best
+        if is_best:
+            cur_best = test_loss
+        checkpoint_fname = join(rnn_dir, 'checkpoint.tar')
+        save_checkpoint({
+            "state_dict": mdrnn.state_dict(),
+            "optimizer": optimizer.state_dict(),
+            'scheduler': scheduler.state_dict(),
+            'earlystopping': earlystopping.state_dict(),
+            "precision": test_loss,
+            "epoch": e}, is_best, checkpoint_fname,
+            rnn_file)
+
+        if earlystopping.stop:
+            print("End of Training because of early stopping at epoch {}".format(e))
+            break
