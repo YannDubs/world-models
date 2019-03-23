@@ -32,6 +32,8 @@ parser.add_argument('--nosamples', action='store_true',
                     help='Does not save samples during training if specified')
 parser.add_argument('--is-factor', action='store_true',
                     help='Uses factor VAE')
+parser.add_argument('--max-workers', type=int, help='Maximum number of workers.',
+                    default=14)  # 16 but let a lttle bit margin
 
 
 args = parser.parse_args()
@@ -63,9 +65,9 @@ dataset_train = RolloutObservationDataset('datasets/carracing',
 dataset_test = RolloutObservationDataset('datasets/carracing',
                                          transform_test, train=False)
 train_loader = torch.utils.data.DataLoader(
-    dataset_train, batch_size=args.batch_size, shuffle=True, num_workers=0)
+    dataset_train, batch_size=args.batch_size, shuffle=True, num_workers=args.max_workers)
 test_loader = torch.utils.data.DataLoader(
-    dataset_test, batch_size=args.batch_size, shuffle=True, num_workers=0)
+    dataset_test, batch_size=args.batch_size, shuffle=True, num_workers=args.max_workers)
 
 
 model = VAE(3, LSIZE).to(device)
@@ -156,6 +158,8 @@ if not args.noreload and exists(reload_file):
 
 cur_best = None
 
+if args.is_factor:
+    print("Using Factor VAE")
 for epoch in range(1, args.epochs + 1):
     train(epoch, is_factor=args.is_factor)
     test_loss = test()

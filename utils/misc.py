@@ -23,6 +23,16 @@ transform = transforms.Compose([
 ])
 
 
+def load_model_safe_(model, pretrained_dict):
+    """Load the weights of aa pretrained model in `model` even if the latter has new
+    parameters.
+    """
+    curr_dict = model.state_dict()
+    filtered_dict = {k: v for k, v in pretrained_dict.items() if k in curr_dict}
+    curr_dict.update(filtered_dict)
+    model.load_state_dict(curr_dict)
+
+
 def sample_continuous_policy(action_space, seq_len, dt):
     """ Sample a continuous policy.
 
@@ -75,7 +85,7 @@ def unflatten_parameters(params, example, device):
     params = torch.Tensor(params).to(device)
     idx = 0
     unflattened = []
-    for e_p in example:
+    for i, e_p in enumerate(example):
         unflattened += [params[idx:idx + e_p.numel()].view(e_p.size())]
         idx += e_p.numel()
     return unflattened
@@ -144,7 +154,7 @@ class RolloutGenerator(object):
             ctrl_state = torch.load(ctrl_file, map_location={'cuda:0': str(device)})
             print("Loading Controller with reward {}".format(
                 ctrl_state['reward']))
-            self.controller.load_state_dict(ctrl_state['state_dict'])
+            load_model_safe_(self.controller, ctrl_state['state_dict'])
 
         self.env = gym.make('CarRacing-v0')
         self.device = device

@@ -3,6 +3,7 @@ import argparse
 from functools import partial
 from os.path import join, exists
 from os import mkdir
+import sys
 import torch
 import torch.nn.functional as f
 from torch.utils.data import DataLoader
@@ -72,6 +73,9 @@ if exists(rnn_file) and not args.noreload:
     optimizer.load_state_dict(rnn_state["optimizer"])
     scheduler.load_state_dict(state['scheduler'])
     earlystopping.load_state_dict(state['earlystopping'])
+
+    if args.no_train:
+        sys.exit("Exiting as no training required.")
 
 
 # Data Loading

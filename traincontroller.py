@@ -16,7 +16,7 @@ from models import Controller
 from tqdm import tqdm
 import numpy as np
 from utils.misc import RolloutGenerator, ASIZE, RSIZE, LSIZE
-from utils.misc import load_parameters
+from utils.misc import load_parameters, load_model_safe_
 from utils.misc import flatten_parameters
 
 # parsing
@@ -29,9 +29,10 @@ parser.add_argument('--target-return', type=float, help='Stops once the return '
 parser.add_argument('--display', action='store_true', help="Use progress bars if "
                     "specified.")
 parser.add_argument('--max-workers', type=int, help='Maximum number of workers.',
-                    default=14) # 16 but let a lttle bit margin
+                    default=14)  # 16 but let a lttle bit margin
 parser.add_argument('--is-gate', action='store_true', help='Whether to use a highway for last actions to smoothen it out.')
 parser.add_argument('--max-epoch', type=int, default=50, help='Whether to use a highway for last actions to smoothen it out.')
+parser.add_argument('--log-step', type=int, default=5, help='Every how many steps to evalutae and store best.')
 args = parser.parse_args()
 
 # Max number of workers. M
@@ -85,6 +86,7 @@ def slave_routine(p_queue, r_queue, e_queue, p_index):
     sys.stderr = open(join(tmp_dir, str(getpid()) + '.err'), 'a')
 
     with torch.no_grad():
+
         r_gen = RolloutGenerator(args.logdir, device, time_limit, is_gate=args.is_gate)
 
         while e_queue.empty():
@@ -136,7 +138,7 @@ def evaluate(solutions, results, rollouts=100):
 ################################################################################
 #                           Launch CMA                                         #
 ################################################################################
-controller = Controller(LSIZE, RSIZE, ASIZE)  # dummy instance
+controller = Controller(LSIZE, RSIZE, ASIZE, is_gate=args.is_gate)  # dummy instance
 
 # define current best and load parameters
 cur_best = None
@@ -145,7 +147,11 @@ print("Attempting to load previous best...")
 if exists(ctrl_file):
     state = torch.load(ctrl_file, map_location={'cuda:0': 'cpu'})
     cur_best = - state['reward']
-    controller.load_state_dict(state['state_dict'])
+
+    # changes so that can load previous mdoels even if the controller source
+    # code has changes (add new parameters)
+    load_model_safe_(controller, state['state_dict'])
+    print(controller.gates, controller.is_gate)
     print("Previous best was {}...".format(-cur_best))
 
 parameters = controller.parameters()
@@ -153,7 +159,7 @@ es = cma.CMAEvolutionStrategy(flatten_parameters(parameters), 0.1,
                               {'popsize': pop_size})
 
 epoch = 0
-log_step = 3
+
 while not es.stop():
     if cur_best is not None and - cur_best > args.target_return:
         print("Already better than target, breaking...")
@@ -184,7 +190,7 @@ while not es.stop():
     es.disp()
 
     # evaluation and saving
-    if epoch % log_step == log_step - 1:
+    if epoch % args.log_step == args.log_step - 1:
         best_params, best, std_best = evaluate(solutions, r_list)
         print("Current evaluation: {}".format(best))
         if not cur_best or cur_best > best:
