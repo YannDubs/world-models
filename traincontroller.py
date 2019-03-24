@@ -151,7 +151,10 @@ if exists(ctrl_file):
     # changes so that can load previous mdoels even if the controller source
     # code has changes (add new parameters)
     load_model_safe_(controller, state['state_dict'])
-    print(controller.gates, controller.is_gate)
+    try:
+        print(controller.gates, controller.is_gate)
+    except AttributeError:
+        pass
     print("Previous best was {}...".format(-cur_best))
 
 parameters = controller.parameters()
