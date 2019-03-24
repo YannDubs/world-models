@@ -1,3 +1,4 @@
+*venv
 datasets
 logs
 __pycache__
@@ -10,3 +11,4 @@ dock_config.json
 *_dir*
 *.log
 *.sh
+.DS_Store

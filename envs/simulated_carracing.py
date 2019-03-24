@@ -1,6 +1,10 @@
 """
 Simulated carracing environment.
 """
+import sys
+
+sys.path.append("../")
+
 import argparse
 from os.path import join, exists
 import torch

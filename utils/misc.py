@@ -123,7 +123,6 @@ class RolloutGenerator(object):
     def __init__(self, mdir, device, time_limit, is_gate=False):
         """ Build vae, rnn, controller and environment. """
         # Loading world model and vae
-        print(is_gate)
 
         vae_file, rnn_file, ctrl_file = \
             [join(mdir, m, 'best.tar') for m in ['vae', 'mdrnn', 'ctrl']]
